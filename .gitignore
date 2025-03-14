@@ -11,3 +11,4 @@ classwise_eval
 *.egg-info
 assets
 experiments
+open3dsg/data_out/
