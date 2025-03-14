@@ -144,8 +144,10 @@ def read_scan_info_R3SCAN(scan_id, mode='depth'):
         color_path = os.path.join(sequence_path, "frame-%s." % str(i).zfill(6) + 'color.jpg')
         frame_paths.append("frame-%s." % str(i).zfill(6) + 'color.jpg')
         extrinsic_path = os.path.join(sequence_path, "frame-%s." % str(i).zfill(6) + "pose.txt")
-        assert os.path.exists(frame_path) and os.path.exists(extrinsic_path)
-
+        # assert os.path.exists(frame_path) and os.path.exists(extrinsic_path)
+        # print(frame_path)
+        # print(extrinsic_path)
+        assert os.path.exists(frame_path) and os.path.exists(extrinsic_path), f"Assertion failed for scan_id: {scan_id}"
         color_list.append(np.array(plt.imread(color_path)))
 
         image_list.append(cv2.imread(frame_path, -1).reshape(-1))

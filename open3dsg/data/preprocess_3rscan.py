@@ -110,7 +110,7 @@ def judge_obb_intersect(p, obb):
 
 
 class Preprocessor():
-    def __init__(self, skip_existing=False, distance="avg"):
+    def __init__(self, skip_existing=True, distance="avg"):
         self.skip_existing = skip_existing
         self.distance = distance
         self.word2idx = {}

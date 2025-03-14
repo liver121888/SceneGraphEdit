@@ -12,9 +12,9 @@ CONF = EasyDict()
 
 # path
 CONF.PATH = EasyDict()
-CONF.PATH.HOME = ""  # Your home directory
-CONF.PATH.BASE = ""  # OpenSG directory
-CONF.PATH.DATA = ""  # Root path for datasets
+CONF.PATH.HOME = "/home/ubuntu/"  # Your home directory
+CONF.PATH.BASE = os.path.join(CONF.PATH.HOME, "SceneGraphEdit")  # OpenSG directory
+CONF.PATH.DATA = os.path.join(CONF.PATH.BASE, "data")  # Root path for datasets
 
 # append to syspath
 for _, path in CONF.PATH.items():
@@ -22,16 +22,16 @@ for _, path in CONF.PATH.items():
 
 # Original Datasets
 CONF.PATH.R3SCAN_RAW = os.path.join(CONF.PATH.DATA, "3RScan")  # 3RScan original dataset directory
-CONF.PATH.SCANNET_RAW = os.path.join(CONF.PATH.DATA, "SCANNET")  # ScanNet original dataset directory
-CONF.PATH.SCANNET_RAW3D = os.path.join(CONF.PATH.SCANNET_RAW, "scannet_3d", "data")  # ScanNet original dataset directory
-CONF.PATH.SCANNET_RAW2D = os.path.join(CONF.PATH.SCANNET_RAW, "scannet_2d")  # ScanNet original dataset directory
+# CONF.PATH.SCANNET_RAW = os.path.join(CONF.PATH.DATA, "SCANNET")  # ScanNet original dataset directory
+# CONF.PATH.SCANNET_RAW3D = os.path.join(CONF.PATH.SCANNET_RAW, "scannet_3d", "data")  # ScanNet original dataset directory
+# CONF.PATH.SCANNET_RAW2D = os.path.join(CONF.PATH.SCANNET_RAW, "scannet_2d")  # ScanNet original dataset directory
 
 # Processed Dataset
 # CONF.PATH.R3SCAN = os.path.join(CONF.PATH.DATA, "OpenSG_3RScan")
 # CONF.PATH.SCANNET = os.path.join(CONF.PATH.DATA, "OpenSG_ScanNet")
-CONF.PATH.DATA_OUT = ""  # Output directory for processed datasets
+CONF.PATH.DATA_OUT = "data_out"  # Output directory for processed datasets
 CONF.PATH.R3SCAN = os.path.join(CONF.PATH.DATA_OUT, "datasets", "OpenSG_3RScan")  # Output directory for processed 3RScan dataset
-CONF.PATH.SCANNET = os.path.join(CONF.PATH.DATA_OUT, "datasets", "OpenSG_ScanNet")  # Output directory for processed ScanNet dataset
+# CONF.PATH.SCANNET = os.path.join(CONF.PATH.DATA_OUT, "datasets", "OpenSG_ScanNet")  # Output directory for processed ScanNet dataset
 CONF.PATH.CHECKPOINTS = os.path.join(CONF.PATH.DATA_OUT, "checkpoints")
 CONF.PATH.FEATURES = os.path.join(CONF.PATH.DATA_OUT, "features")
 
