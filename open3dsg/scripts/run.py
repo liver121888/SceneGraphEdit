@@ -61,6 +61,8 @@ def get_args():
     parser.add_argument('--dataset', default='scannet', help="['scannet','3rscan']")
     parser.add_argument('--mini_dataset', action='store_true',
                         help="only load a tiny fraction of data for faster debugging")
+    parser.add_argument('--subset', action='store_true', required=False,
+                        help="only load a small fraction of data for faster training")
     parser.add_argument('--augment', action="store_true",
                         help="use basic pcl augmentations that do not collide with scene graph properties")
     parser.add_argument("--top_k_frames", type=int, default=5, help="number of frames to consider for each instance")
@@ -217,7 +219,7 @@ if __name__ == "__main__":
         deterministic=False,
         check_val_every_n_epoch=1,
         num_sanity_val_steps=0,
-        log_every_n_steps=1 if args.mini_dataset else 100,
+        log_every_n_steps = 1 if args.mini_dataset else 10 if args.subset else 100,
         accumulate_grad_batches=args.accumulate_grad_batches,
     )
     if args.test is False:

@@ -313,12 +313,12 @@ class Open2D3DSGDataset(Dataset):
         blank_img_dim = (240, 320) if dataset == 'scannet' else (224, 172)
         for i, (k, v) in enumerate(obj2frame.items()):  # range(len(obj2frame)):
             obj = v  # obj2frame_lst[i]
-            frames, pixels, vis, bbox, pixel_ids = tuple(np.array(t) for t in zip(*obj))
+            frames, pixels, vis, bbox, pixel_ids = tuple(np.array(t, dtype=object) for t in zip(*obj))
 
             if dataset == '3rscan':
                 bbox = np.array((172-bbox[:, 1], bbox[:, 0], 172-bbox[:, 3], bbox[:, 2])).T
-                pixel_ids = np.array([np.array([pids[:, 1], 172-pids[:, 0]]).T for pids in pixel_ids])
-                pixel_ids = np.array([pids[(pids[:, 1] < 172) & (pids[:, 0] < 224)] for pids in pixel_ids])
+                pixel_ids = np.array([np.array([pids[:, 1], 172-pids[:, 0]], dtype=object).T for pids in pixel_ids], dtype=object)
+                pixel_ids = np.array([pids[(pids[:, 1] < 172) & (pids[:, 0] < 224)] for pids in pixel_ids], dtype=object)
 
             # filter all where more than 10% of the object is visible
             # self.obj_mask_crit = 0.3

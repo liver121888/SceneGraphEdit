@@ -389,7 +389,7 @@ if __name__ == '__main__':
     if dataset == "SCANNET":
         root = os.path.join(CONF.PATH.SCANNET, "subgraphs")
     else:
-        root = os.path.join(CONF.PATH.R3SCAN_RAW, "3DSSG_subset")
+        root = os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset")
 
     scene_data, selected_scans = read_json(root, mode)
     export_path = os.path.join(export_path, "views")

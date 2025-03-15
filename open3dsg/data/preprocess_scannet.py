@@ -195,7 +195,7 @@ class Preprocessor():
 
         self.rel2idx = {}
         index = 0
-        file = open(os.path.join(CONF.PATH.R3SCAN_RAW, "3DSSG_subset", "relationships.txt"), 'r')
+        file = open(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset", "relationships.txt"), 'r')
         category = file.readline().rstrip()
         while category:
             self.rel2idx[category] = index

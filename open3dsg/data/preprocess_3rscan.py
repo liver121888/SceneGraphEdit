@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
+from open3dsg.util.util_misc import read_txt_to_list
 
 from open3dsg.config.config import CONF
 
@@ -115,7 +116,7 @@ class Preprocessor():
         self.distance = distance
         self.word2idx = {}
         index = 0
-        file = open(os.path.join(CONF.PATH.R3SCAN_RAW, "3DSSG_subset/classes.txt"), 'r')
+        file = open(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/classes.txt"), 'r')
         category = file.readline()[:-1]
         while category:
             self.word2idx[category] = index
@@ -124,7 +125,7 @@ class Preprocessor():
 
         self.rel2idx = {}
         index = 0
-        file = open(os.path.join(CONF.PATH.R3SCAN_RAW, "3DSSG_subset/relationships.txt"), 'r')
+        file = open(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/relationships.txt"), 'r')
         category = file.readline()[:-1]
         while category:
             self.rel2idx[category] = index
@@ -419,18 +420,43 @@ class Preprocessor():
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--parallel', action='store_true', help='parallel', required=False)
+    argparser.add_argument('--subset', action='store_true', help='subset', required=False)
     args = argparser.parse_args()
 
-    relationships_train = json.load(open(os.path.join(CONF.PATH.R3SCAN_RAW, "3DSSG_subset/relationships_train.json")))["scans"]
-    relationships_val = json.load(open(os.path.join(CONF.PATH.R3SCAN_RAW, "3DSSG_subset/relationships_validation.json")))["scans"]
+    relationships_train = json.load(open(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/relationships_train.json")))["scans"]
+    relationships_val = json.load(open(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/relationships_validation.json")))["scans"]
+
+    if args.subset:
+        selected_scans_train = set()
+        selected_scans_train = selected_scans_train.union(read_txt_to_list(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/train_scans_subset.txt")))
+
+        selected_scans_val = set()
+        selected_scans_val = selected_scans_val.union(read_txt_to_list(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/validation_scans_subset.txt")))
+
+        relationships_train = [
+            entry for entry in relationships_train if entry["scan"] in selected_scans_train
+        ]
+
+        relationships_val = [
+            entry for entry in relationships_val if entry["scan"] in selected_scans_val
+        ]
+    # scans
+    # train: 1178 scans, val: 157 scans
+    # train_subset: 50 scans, val: 20 scans
+    print("===== preprecess_3rscan =====")
+    print("train size: ", len(relationships_train), 
+        " validation size: ", len(relationships_val))
+    # relationships
+    # not subset: train size:  3852  validation size:  548
+    # subset: train size:  149  validation size:  56
 
     relationships = relationships_train + relationships_val
     # relationships = relationships_val
 
     processor = Preprocessor(skip_existing=True, distance="min")
 
-    import random
-    random.shuffle(relationships)
+    # import random
+    # random.shuffle(relationships)
 
     if args.parallel:
         process_map(processor.write_pickle, relationships, max_workers=16, chunksize=1)

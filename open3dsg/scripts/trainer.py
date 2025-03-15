@@ -28,6 +28,7 @@ from open3dsg.models.pointnet import feature_transform_reguliarzer
 from open3dsg.models.sgpn import SGPN
 from open3dsg.scripts.eval import get_eval, eval_attribute
 from open3dsg.util.plotting_utils import *
+from open3dsg.util.util_misc import read_txt_to_list
 
 REPORT_TEMPLATE_MAIN_EVAL = """
 ---------------------------------Report---------------------------------\n
@@ -126,12 +127,28 @@ class D3SSGModule(lightning.LightningModule):
     def setup(self, stage: str):
         def load_scan(base_path, file_path):
             return json.load(open(os.path.join(base_path, file_path)))["scans"]
-        D3SSG_TRAIN = load_scan(CONF.PATH.R3SCAN_RAW, "3DSSG_subset/relationships_train.json")
-        D3SSG_VAL = load_scan(CONF.PATH.R3SCAN_RAW, "3DSSG_subset/relationships_validation.json")
-        D3SSG_TEST = load_scan(CONF.PATH.R3SCAN_RAW, "3DSSG_subset/relationships_test.json")
+        D3SSG_TRAIN = load_scan(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/relationships_train.json")
+        D3SSG_VAL = load_scan(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/relationships_validation.json")
+        # D3SSG_TEST = load_scan(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/relationships_test.json")
 
-        SCANNET_TRAIN = load_scan(CONF.PATH.SCANNET, "subgraphs/relationships_train.json")
-        SCANNET_VAL = load_scan(CONF.PATH.SCANNET, "subgraphs/relationships_validation.json")
+        if self.hparams.get('subset'):
+            selected_scans_train = set()
+            selected_scans_train = selected_scans_train.union(read_txt_to_list(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/train_scans_subset.txt")))
+
+            selected_scans_val = set()
+            selected_scans_val = selected_scans_val.union(read_txt_to_list(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/validation_scans_subset.txt")))
+
+            D3SSG_TRAIN = [
+                entry for entry in D3SSG_TRAIN if entry["scan"] in selected_scans_train
+            ]
+
+            D3SSG_VAL = [
+                entry for entry in D3SSG_VAL if entry["scan"] in selected_scans_val
+            ]
+
+
+        # SCANNET_TRAIN = load_scan(CONF.PATH.SCANNET, "subgraphs/relationships_train.json")
+        # SCANNET_VAL = load_scan(CONF.PATH.SCANNET, "subgraphs/relationships_validation.json")
 
         img_dim = 336 if self.hparams['clip_model'] == 'ViT-L/14@336px' else 224
         rel_img_dim = img_dim
