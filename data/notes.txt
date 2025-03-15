@@ -1,0 +1,5 @@
+take first 50 in train_scans.txt and exclude 2 invalid cases
+
+b05fdd5a-fca0-2d4f-89fd-d54bd26a115b
+2451c057-fae8-24f6-92b8-df89e0429f6e
+
