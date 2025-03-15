@@ -1,0 +1,9 @@
+# Ignore everything in 3RScan
+3RScan/*
+
+# Ignore private dataset download script 
+download3RScan.py
+
+# Except the _3DSSG_subset directory and its contents
+!3RScan/_3DSSG_subset/
+!3RScan/_3DSSG_subset/**

@@ -9,6 +9,7 @@ graph*
 vis_graphs
 classwise_eval
 *.egg-info
+*.zip
 assets
 experiments
 open3dsg/data_out/
