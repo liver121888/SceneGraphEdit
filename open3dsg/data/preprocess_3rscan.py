@@ -442,7 +442,7 @@ if __name__ == '__main__':
         ]
     # scans
     # train: 1178 scans, val: 157 scans
-    # train_subset: 50 scans, val: 20 scans
+    # train_subset: 48 scans, val: 20 scans
     print("===== preprecess_3rscan =====")
     print("train size: ", len(relationships_train), 
         " validation size: ", len(relationships_val))
