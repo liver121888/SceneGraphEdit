@@ -12,4 +12,4 @@ classwise_eval
 *.zip
 assets
 experiments
-open3dsg/data_out/
+data_out/

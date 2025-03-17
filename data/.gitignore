@@ -1,9 +1,24 @@
 # Ignore everything in 3RScan
 3RScan/*
 
-# Ignore private dataset download script 
 download3RScan.py
 
 # Except the _3DSSG_subset directory and its contents
 !3RScan/_3DSSG_subset/
 !3RScan/_3DSSG_subset/**
+
+# Except specific files in 3RScan
+!3RScan/3RScan.json
+!3RScan/classes.txt
+!3RScan/floor_boxes_split_train.json
+!3RScan/floor_boxes_split_val.json
+!3RScan/intrinsics.txt
+!3RScan/mapping_full2rio27.json
+!3RScan/obj_boxes_train_refined.json
+!3RScan/obj_boxes_val_refined.json
+!3RScan/relationships_custom.txt
+!3RScan/relationships_merged_train_clean.json
+!3RScan/relationships_merged_validation_clean.json
+!3RScan/relationships_train_clean.json
+!3RScan/relationships_validation_clean.json
+!3RScan/relationships.txt
