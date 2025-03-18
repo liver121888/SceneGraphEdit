@@ -80,6 +80,7 @@ class SGRec3D(nn.Module):
         
         # Feature adapter (combines PointNet features with bounding box features)
         feature_size = 256+64 if self.pointnet2 else 1024+64
+        self.point_net_features_size = 256 if self.pointnet2 else 1024
         self.pointnet_adapter = build_mlp(
             [feature_size, 512, self.hparams.get('gconv_dim', 512)], 
             activation='relu', 
@@ -150,6 +151,15 @@ class SGRec3D(nn.Module):
         
         # Initialize or load pre-trained AtlasNet (if available)
         self.atlas_net = None  # Placeholder for the actual AtlasNet model
+        
+        # pointnet features for skip connection
+        self.pointnet_obj_features = None
+        
+        self.skip_connection_adapter = build_mlp(
+            [self.point_net_features_size + hidden_dim, hidden_dim, hidden_dim], 
+            activation='relu', 
+            on_last=True
+        )
     
     def _init_loss_functions(self):
         """Initialize loss functions for pre-training and fine-tuning."""
@@ -190,6 +200,8 @@ class SGRec3D(nn.Module):
         pred_vecs = pred_vecs.view(predicate_pcl.shape[0], -1, pred_vecs.shape[-1])
         tf1 = tf1.view(objects_pcl.shape[0], -1, *tf1.shape[1:])
         tf2 = tf2.view(predicate_pcl.shape[0], -1, *tf2.shape[1:])
+        
+        self.pointnet_obj_features = obj_vecs
         
         return obj_vecs, pred_vecs, tf1, tf2
     
@@ -261,10 +273,6 @@ class SGRec3D(nn.Module):
             if self.hparams.get('gnn_layers', 0) > 0:
                 o_vecs, p_vecs = self.gconv_net(o_vecs, p_vecs, edges_batch)
             
-            # # Store GCN features for skip connection
-            # self.gcn_o_features.append(o_vecs)
-            # self.gcn_p_features.append(p_vecs)
-            
             # Pad to fixed size if needed
             max_nodes = self.hparams.get('max_nodes', -1)
             max_edges = self.hparams.get('max_edges', -1)
@@ -333,25 +341,7 @@ class SGRec3D(nn.Module):
             # Lift bottleneck features to higher dimension for this batch
             node_features_batch = self.node_embedding(node_bottleneck[i])
             edge_features_batch = self.edge_embedding(edge_bottleneck[i])
-            
-            # # Get the GCN features for this batch
-            # gcn_o_features_batch = self.gcn_o_features[i]
-            # gcn_p_features_batch = self.gcn_p_features[i]
-            
-            # Create skip connection with encoder GCN features
-            # # Match dimensions first (pad the GCN features if needed)
-            # max_nodes = self.hparams.get('max_nodes', -1)
-            # if max_nodes > 0 and gcn_o_features_batch.shape[0] < node_features_batch.shape[0]:
-            #     gcn_o_features_batch = torch.cat((
-            #         gcn_o_features_batch,
-            #         torch.zeros((node_features_batch.shape[0] - gcn_o_features_batch.shape[0], 
-            #                 gcn_o_features_batch.shape[1])).to(gcn_o_features_batch.device)
-            #     ))
-            
-            # Now combine with skip connection
-            # node_features_with_skip = torch.cat([node_features_batch, gcn_o_features_batch], dim=-1)
-            # edge_features_with_skip = torch.cat([edge_features_batch, gcn_p_features_batch], dim=-1)
-            
+                        
             # Process through decoder GCN
             edges_batch = edges[i][:edge_features_batch.shape[0]]
             node_features_out, _ = self.decoder_gcn(
@@ -360,6 +350,11 @@ class SGRec3D(nn.Module):
                 edges_batch
             )
             
+            # Skip connection from PointNet features
+            pointnet_features_batch = self.pointnet_obj_features[i]
+            decode_features = torch.cat([node_features_out, pointnet_features_batch], dim=-1)
+            node_features_out = self.skip_connection_adapter(decode_features)
+
             # Predict bounding boxes and shape codes
             boxes_batch = self.box_head(node_features_out)  # [w, l, h, cx, cy, cz, angle]
             shape_codes_batch = self.shape_head(node_features_out)  # Shape encoding for AtlasNet
@@ -391,7 +386,7 @@ class SGRec3D(nn.Module):
         Returns:
             data_dict: Updated dictionary with encoder outputs and optionally decoder outputs
         """
-        batch_size = data_dict["objects_id"].size(0)
+        batch_size = data_dict["objects_pcl"].size(0)
         obj_num, pred_num = data_dict["objects_count"], data_dict["predicate_count"]
         
         # Prepare point cloud inputs
@@ -603,6 +598,7 @@ if __name__ == "__main__":
     # Forward pass - Pre-training mode
     print("\nRunning in pre-training mode")
     model.set_pretraining_mode(True)
+    # print(model)
     output_dict = model(data_dict)
     
     # Calculate pre-training loss

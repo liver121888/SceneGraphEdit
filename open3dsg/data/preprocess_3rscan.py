@@ -441,7 +441,9 @@ if __name__ == '__main__':
             entry for entry in relationships_val if entry["scan"] in selected_scans_val
         ]
     # scans
-    # train: 1178 scans, val: 157 scans
+    # train: 1178 scans, val: 157 scans -> total 1335
+    # not every scan is valid, valid total: 1314
+    
     # train_subset: 48 scans, val: 20 scans
     print("===== preprecess_3rscan =====")
     print("train size: ", len(relationships_train), 

@@ -2,7 +2,7 @@
 
 # Current directory is data/
 # First navigate to 3RScan directory
-cd 3RScan || { echo "3RScan directory not found!"; exit 1; }
+cd ../3RScan || { echo "3RScan directory not found!"; exit 1; }
 echo "Changed to directory: $(pwd)"
 
 # This script will unzip sequence.zip to a 'sequence' folder in each subfolder
