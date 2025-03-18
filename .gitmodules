@@ -1,0 +1,3 @@
+[submodule "AtlasNet2"]
+	path = AtlasNet2
+	url = https://github.com/ThibaultGROUEIX/AtlasNet.git
