@@ -42,8 +42,15 @@ class STN3d(nn.Module):
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
 
-        iden = Variable(torch.from_numpy(np.array([1, 0, 0, 0, 1, 0, 0, 0, 1]).astype(np.float32))).view(1, 9).repeat(
-            batchsize, 1)
+        iden = (
+            Variable(
+                torch.from_numpy(
+                    np.array([1, 0, 0, 0, 1, 0, 0, 0, 1]).astype(np.float32)
+                )
+            )
+            .view(1, 9)
+            .repeat(batchsize, 1)
+        )
         if x.is_cuda:
             iden = iden.cuda()
         x = x + iden
@@ -82,8 +89,11 @@ class STNkd(nn.Module):
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
 
-        iden = Variable(torch.from_numpy(np.eye(self.k).flatten().astype(np.float32))).view(1, self.k * self.k).repeat(
-            batchsize, 1)
+        iden = (
+            Variable(torch.from_numpy(np.eye(self.k).flatten().astype(np.float32)))
+            .view(1, self.k * self.k)
+            .repeat(batchsize, 1)
+        )
         if x.is_cuda:
             iden = iden.cuda()
         x = x + iden
@@ -136,6 +146,7 @@ class PointNetEncoder(nn.Module):
             return x, trans, trans_feat
         else:
             x = x.view(-1, 1024, 1).repeat(1, 1, N)
+            # Concatenate the global feature with the point features
             return torch.cat([x, pointfeat], 1), trans, trans_feat
 
 
@@ -145,5 +156,7 @@ def feature_transform_reguliarzer(trans):
     I = torch.eye(d)[None, :, :]
     if trans.is_cuda:
         I = I.cuda()
-    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2, 1) - I), dim=(1, 2)))
+    loss = torch.mean(
+        torch.norm(torch.bmm(trans, trans.transpose(2, 1) - I), dim=(1, 2))
+    )
     return loss
