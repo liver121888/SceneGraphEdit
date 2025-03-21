@@ -6,6 +6,7 @@ import numpy as np
 from open3dsg.models.pointnet import PointNetEncoder, feature_transform_reguliarzer
 from open3dsg.models.network_GNN import TripletGCNModel, GraphEdgeAttenNetworkLayers
 from open3dsg.models.network_util import build_mlp
+import pytorch_lightning as lightning
 
 
 class SGRec3D(nn.Module):
@@ -172,6 +173,22 @@ class SGRec3D(nn.Module):
             on_last=True,
         )
 
+        # Store GCN encoder features for skip connection
+        self.gcn_encoder_node_features = None
+        self.gcn_encoder_edge_features = None
+
+        # Skip connection adapters
+        self.node_skip_connection_adapter = build_mlp(
+            [gconv_dim + hidden_dim, hidden_dim, hidden_dim],
+            activation="relu",
+            on_last=True,
+        )
+        self.edge_skip_connection_adapter = build_mlp(
+            [gconv_dim + hidden_dim, hidden_dim, hidden_dim],
+            activation="relu",
+            on_last=True,
+        )
+
     def _init_loss_functions(self):
         """Initialize loss functions for pre-training and fine-tuning."""
         # Pre-training losses
@@ -276,7 +293,8 @@ class SGRec3D(nn.Module):
         pred_vecs_list = []
         # self.gcn_o_features = []
         # self.gcn_p_features = []
-
+        gcn_encoder_features_list_o = []
+        gcn_encoder_features_list_p = []
         for i in range(batch_size):
             object_num = objects_count[i]
             predicate_num = predicate_count[i]
@@ -291,6 +309,10 @@ class SGRec3D(nn.Module):
             # Process through GCN if enabled
             if self.hparams.get("gnn_layers", 0) > 0:
                 o_vecs, p_vecs = self.gconv_net(o_vecs, p_vecs, edges_batch)
+
+            # Store the GCN encoder features before bottleneck for skip connection
+            gcn_encoder_features_list_o.append(o_vecs.clone())
+            gcn_encoder_features_list_p.append(p_vecs.clone())
 
             # Pad to fixed size if needed
             max_nodes = self.hparams.get("max_nodes", -1)
@@ -322,6 +344,9 @@ class SGRec3D(nn.Module):
 
             obj_vecs_list.append(o_vecs_out)
             pred_vecs_list.append(p_vecs_out)
+
+        self.gcn_encoder_node_features = gcn_encoder_features_list_o
+        self.gcn_encoder_edge_features = gcn_encoder_features_list_p
 
         return obj_vecs_list, pred_vecs_list
 
@@ -371,18 +396,39 @@ class SGRec3D(nn.Module):
             node_features_batch = self.node_embedding(node_bottleneck[i])
             edge_features_batch = self.edge_embedding(edge_bottleneck[i])
 
+            # Apply skip connections before decoder GCN
+            gcn_encoder_node_features_batch = self.gcn_encoder_node_features[i]
+            gcn_encoder_edge_features_batch = self.gcn_encoder_edge_features[i]
+
+            # Concatenate bottleneck features with GCN encoder features
+            node_features_with_skip = torch.cat(
+                [node_features_batch, gcn_encoder_node_features_batch], dim=-1
+            )
+            edge_features_with_skip = torch.cat(
+                [edge_features_batch, gcn_encoder_edge_features_batch], dim=-1
+            )
+
+            # Apply skip connection adapters
+            node_features_batch = self.node_skip_connection_adapter(
+                node_features_with_skip
+            )
+            edge_features_batch = self.edge_skip_connection_adapter(
+                edge_features_with_skip
+            )
+
             # Process through decoder GCN
             edges_batch = edges[i][: edge_features_batch.shape[0]]
             node_features_out, _ = self.decoder_gcn(
                 node_features_batch, edge_features_batch, edges_batch
             )
 
-            # Skip connection from PointNet features
-            pointnet_features_batch = self.pointnet_obj_features[i]
-            decode_features = torch.cat(
-                [node_features_out, pointnet_features_batch], dim=-1
-            )
-            node_features_out = self.skip_connection_adapter(decode_features)
+            # Skip connection from PointNet features (Should this be the last output of the GCN encoder before activation?)
+            # "skip-connection between the last GCN encoder layer before applying the softmax and sigmoid functions"
+            # pointnet_features_batch = self.pointnet_obj_features[i]
+            # decode_features = torch.cat(
+            #     [node_features_out, pointnet_features_batch], dim=-1
+            # )
+            # node_features_out = self.skip_connection_adapter(decode_features)
 
             # Predict bounding boxes and shape codes
             boxes_batch = self.box_head(
@@ -603,6 +649,12 @@ class SGRec3D(nn.Module):
         # In a real implementation, you would load the actual AtlasNet here
         # self.atlas_net = load_atlasnet_from_checkpoint(checkpoint_path)
         print(f"Loaded pre-trained AtlasNet from {checkpoint_path}")
+
+
+class D3SSG(lightning.LightningModule):
+    def __init__(self, hparams):
+        super(D3SSG, self).__init__()
+        pass
 
 
 if __name__ == "__main__":
