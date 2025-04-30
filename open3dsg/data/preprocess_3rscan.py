@@ -21,7 +21,7 @@ from open3dsg.config.config import CONF
 lock = multiprocessing.Lock()
 
 pbar = None
-
+postfix = ''
 
 def load_mesh(mesh_path, texture_path):
     mesh = trimesh.load(mesh_path, process=False)
@@ -30,7 +30,6 @@ def load_mesh(mesh_path, texture_path):
     mesh.visual.texture = tex
 
     return mesh.vertices, mesh.visual.to_color().vertex_colors[:, :3], mesh.vertex_normals
-
 
 def pcl_normalize(pcl):
     rgbnrm_class = pcl[:, 3:]
@@ -44,13 +43,36 @@ def pcl_normalize(pcl):
     pcl = pcl_
     return np.concatenate((pcl, rgbnrm_class), axis=1), centroid, m
 
+def pcl_normalize_to_bbox(pcl, centroid, scale):
+    
+    rgbnrm_class = pcl[:, 3:]
+
+    pcl_ = pcl[:, :3]
+    pcl_ = pcl_ - centroid
+    # prevent RuntimeWarning: invalid value encountered in divide
+    if scale < 1e-9:
+        scale += 1e-9
+    pcl_ = pcl_ / scale
+    pcl = pcl_
+    return np.concatenate((pcl, rgbnrm_class), axis=1)
+
+# def extract_axis_bbox(obj_pc):
+#     obb = {}  # centroid, axesLengths, normalizedAxes
+
+#     xyz_min = np.min(obj_pc, axis=0)
+#     xyz_max = np.max(obj_pc, axis=0)
+#     return np.concatenate((abs(xyz_max - xyz_min), np.mean(obj_pc, axis=0), np.array([0])), axis=0)
 
 def extract_axis_bbox(obj_pc):
-    obb = {}  # centroid, axesLengths, normalizedAxes
 
     xyz_min = np.min(obj_pc, axis=0)
     xyz_max = np.max(obj_pc, axis=0)
-    return np.concatenate((abs(xyz_max - xyz_min), np.mean(obj_pc, axis=0), np.array([0])), axis=0)
+    
+    centroid = (xyz_max + xyz_min)/2
+    xyz_length = abs((xyz_max - xyz_min))
+    scale = np.max(xyz_length) 
+    
+    return np.concatenate((xyz_length, centroid), axis=0), centroid, scale
 
 
 def farthest_point_sample(point, npoint):
@@ -135,6 +157,53 @@ class Preprocessor():
         self.boxes_train = json.load(open(CONF.PATH.R3SCAN_RAW+'/obj_boxes_train_refined.json', 'r'))
         self.boxes_val = json.load(open(CONF.PATH.R3SCAN_RAW+'/obj_boxes_val_refined.json', 'r'))
 
+
+    # This script is processing 3D scene data to create a structured dataset for scene graph generation. 
+
+    # The process_one_scan method takes a scan ID and relationship data as input and processes a single 3D scan.
+    # Data loading:
+
+    # Loads a 3D mesh from an OBJ file with point cloud, RGB colors, and normal vectors
+    # Loads the object-to-image mapping previously created by the image_3d_mapping function (the one you asked about earlier)
+    # Loads segmentation data that groups points into segments
+    # Loads semantic segmentation data that groups segments into labeled objects
+
+    # Object processing:
+
+    # Filters objects based on a predefined list and category inclusion
+    # Creates mappings between objects, segments, and points
+    # Samples points for each object (2000 points per object)
+    # Normalizes each object's point cloud
+    # Extracts bounding boxes for objects
+
+    # Relationship processing:
+
+    # Identifies object pairs that have relationships in the data
+    # For each related pair, it creates a union point cloud containing points from both objects
+    # Marks points as belonging to subject (1), object (2), or neither (0)
+    # Computes distances between objects (both center-to-center and minimum distances)
+    # Samples and normalizes the union point clouds (5000 points per relationship)
+
+    # Data organization:
+
+    # Creates mappings between object IDs and their indices
+    # Structures edges for graph processing
+    # Prepares a comprehensive dictionary containing all processed data
+
+    # The resulting data_dict contains:
+
+    # Object information (IDs, categories, point clouds, centers, scales)
+    # Predicate information (categories, point clouds with flags, distances)
+    # Relationship triples and pairs
+    # Graph edges for GCN (Graph Convolutional Network) processing
+    # Bounding box information
+    # Mappings between objects and image frames
+    # Mappings between relationships and image frames
+
+    # This script is a crucial preprocessing step for a 3D scene graph generation system, 
+    # creating structured data that can be used to train or evaluate models that reason about 
+    # objects and their spatial relationships in 3D scenes.
+
     def process_one_scan(self, relationships_scan, scan_id):
 
         # print(f"working on {relationships_scan['scan']}")
@@ -186,6 +255,7 @@ class Preprocessor():
         # sample and normalize point cloud
         obj_sample = 2000
         tight_bbox = []
+        obb_bbox = []
         objects_center = []
         objects_scale = []
         remove_mini_objs = []
@@ -198,13 +268,29 @@ class Preprocessor():
                     ) else self.boxes_val[scan][str(obj_id)]
                 else:
                     bbox_params = {}
-                bbox_params['axis_aligned'] = extract_axis_bbox(obj_pcl[:, :3])
-                tight_bbox.append(bbox_params)
+
+                obb_bbox.append(obb[obj_id])
+                
+                obj_pcl = obj_pcl[within_bbox2(obj_pcl, obb[obj_id])]
                 pcl = farthest_point_sample(obj_pcl, obj_sample)
+                # if empty, skip this object
+                if pcl.shape[0] == 0:
+                    remove_mini_objs.append(obj_id)
+                    continue
+                
                 objects_unnorm[obj_id] = pcl
-                objects[obj_id], centroid, scale = pcl_normalize(pcl)
+                bbox_params['axis_aligned'], centroid, scale  = extract_axis_bbox(pcl[:, :3])
+                tight_bbox.append(bbox_params)
+                
                 objects_center.append(centroid)
                 objects_scale.append(scale)
+                
+                objects[obj_id] = pcl_normalize_to_bbox(pcl, centroid, scale)
+                
+                # objects[obj_id], centroid, scale = pcl_normalize(pcl)
+                # objects_center.append(centroid)
+                # objects_scale.append(scale)
+                
             except KeyError:
                 remove_mini_objs.append(obj_id)
                 continue
@@ -231,26 +317,30 @@ class Preprocessor():
         objects_pcl_glob = np.stack(objects_pcl_glob, axis=0)
 
         # (frame, pixels, vis_fraction, bbox)
-        object2frame_split = {}
+        # object2frame_split = {}
         drop = []
         for o_i, o in enumerate(objects_id):
             if object2fame.get(str(o), None) is None:
                 drop.append(o_i)
-            else:
-                object2frame_split[o] = object2fame[str(o)]
+            # else:
+            #     object2frame_split[o] = object2fame[str(o)]
         if len(objects_id)-len(drop) < 4:
             print('too few visible objects, scene missalignment possible')
             return
             # raise Exception('too few visible objects, scene missalignment possible')
-        for d in sorted(drop, reverse=True):
-            objects_id.pop(d)
-            objects_cat.pop(d)
-            objects_pcl = np.delete(objects_pcl, d, 0)
-            objects_num.pop(d)
+            
+        # # don't drop objects since we are not using rgb images
+        # for d in sorted(drop, reverse=True):
+        #     objects_id.pop(d)
+        #     objects_cat.pop(d)
+        #     objects_pcl = np.delete(objects_pcl, d, 0)
+        #     objects_num.pop(d)
 
         # predicate input of PointNet, including points in the union bounding box of subject and object
         # here consider every possible combination between objects, if there doesn't exist relation in the training file,
         # add the relation with the predicate id replaced by 0
+        # triples: same two objects with different predicate id
+        # pairs: same two objects with different predicate id
         triples = []
         pairs = []
         relationships_triples = relationships_scan["relationships"]
@@ -260,6 +350,10 @@ class Preprocessor():
             triples.append(triple[:3])
             if triple[:2] not in pairs:
                 pairs.append(triple[:2])
+        # the first part of the pairs has relationships
+        # the second part of the pairs has no relationships
+                
+        # make every possible combination between objects
         for i in objects_id:
             for j in objects_id:
                 if i == j or [i, j] in pairs:
@@ -276,7 +370,9 @@ class Preprocessor():
             predicate_num = []
             predicate_dist = []
             predicate_min_dist = []
-            rels2frame_split = {}
+            predicate_pcl_center = []
+            predicate_pcl_scale = []
+            # rels2frame_split = {}
             for rel in pairs:
                 s, o = rel
                 union_pcl = []
@@ -285,11 +381,11 @@ class Preprocessor():
                     if rel == triple[:2]:
                         pred_cls[triple[2]] = 1
                 s, o = rel
-                s_fids = [f[0] for f in object2fame[str(s)]]
-                o_fids = [f[0] for f in object2fame[str(o)]]
-                shared_frames = set(s_fids) & set(o_fids)
-                s_o_frames = [(i, k, p, b, pix) for (i, k, p, b, pix) in object2fame[str(s)] if i in shared_frames]
-                o_s_frames = [(i, k, p, b, pix) for (i, k, p, b, pix) in object2fame[str(o)] if i in shared_frames]
+                # s_fids = [f[0] for f in object2fame[str(s)]]
+                # o_fids = [f[0] for f in object2fame[str(o)]]
+                # shared_frames = set(s_fids) & set(o_fids)
+                # s_o_frames = [(i, k, p, b, pix) for (i, k, p, b, pix) in object2fame[str(s)] if i in shared_frames]
+                # o_s_frames = [(i, k, p, b, pix) for (i, k, p, b, pix) in object2fame[str(o)] if i in shared_frames]
                 # union_pcl_ = pcl_array[within_bbox2(pcl_array, obb[s]) | within_bbox2(pcl_array, obb[o])]
                 # union_ins = inst_array[within_bbox2(pcl_array, obb[s]) | within_bbox2(pcl_array, obb[o])]
                 # union_pcl_flag = np.zeros_like(union_ins)
@@ -297,7 +393,7 @@ class Preprocessor():
                 # union_pcl_flag[union_ins==o]=2
                 # union_pcl_ = np.concatenate((union_pcl_,union_pcl_flag),axis=1)
                 tmp = (within_bbox2(pcl_array, obb[s]) | within_bbox2(pcl_array, obb[o]))
-                rel2frame_split = [(s_f[0], s_f[1], o_f[1], s_f[2], o_f[2], s_f[3], o_f[3]) for s_f, o_f in zip(s_o_frames, o_s_frames)]
+                # rel2frame_split = [(s_f[0], s_f[1], o_f[1], s_f[2], o_f[2], s_f[3], o_f[3]) for s_f, o_f in zip(s_o_frames, o_s_frames)]
                 for index, point in enumerate(pcl_array):
                     if seg_indices[index] not in seg2obj:
                         continue
@@ -311,8 +407,11 @@ class Preprocessor():
                         union_pcl.append(point)
                 union_point_cloud.append(union_pcl)
                 predicate_cat.append(pred_cls.tolist())
-                rels2frame_split[(s, o)] = rel2frame_split
-            # sample and normalize point cloud
+                # rels2frame_split[(s, o)] = rel2frame_split
+                
+            # we want to resample union point cloud so that we can have a fixed number of points
+            
+            # sample and normalize point cloud, for relationship sample, we set the number of points to 5000
             rel_sample = 5000
             for index, _ in enumerate(union_point_cloud):
                 pcl = np.array(union_point_cloud[index])
@@ -333,12 +432,15 @@ class Preprocessor():
                     return
 
                 pcl = farthest_point_sample(pcl, rel_sample)
-                pcl_norm, _, _ = pcl_normalize(pcl)
+                pcl_norm, union_c, union_m = pcl_normalize(pcl)
+                
                 pcl_pad = np.zeros((rel_sample, 10))
                 pcl_pad[:len(pcl)] = pcl_norm
                 union_point_cloud[index] = pcl_pad
                 predicate_dist.append(dist)
                 predicate_min_dist.append(dist_min)
+                predicate_pcl_center.append(union_c)
+                predicate_pcl_scale.append(union_m)
                 predicate_num.append(len(pcl))
         except KeyError:
             print(scan_id)
@@ -370,24 +472,38 @@ class Preprocessor():
         data_dict["scan_id"] = scan_id
         data_dict["objects_id"] = objects_id  # object id
         data_dict["objects_cat"] = objects_cat  # object category
-        data_dict["objects_num"] = objects_num
+        data_dict["objects_num"] = objects_num # object point cloud size
         data_dict["objects_pcl"] = objects_pcl.tolist()  # corresponding point cloud
-        data_dict["objects_pcl_glob"] = objects_pcl_glob
-        data_dict["objects_center"] = [l.tolist() for l in objects_center]
-        data_dict["objects_scale"] = [l.tolist() for l in objects_scale]
-        data_dict["predicate_cat"] = predicate_cat  # predicate id
-        data_dict["predicate_num"] = predicate_num
-        data_dict["predicate_pcl_flag"] = predicate_pcl_flag.tolist()  # corresponding point cloud in the union bounding box
-        data_dict["predicate_dist"] = [l.tolist() for l in predicate_dist]
+        data_dict["objects_pcl_glob"] = objects_pcl_glob # unnormalized point cloud
+        data_dict["objects_center"] = [l.tolist() for l in objects_center] # -> the attibute before normalisation, can be used to unnormalize
+        data_dict["objects_scale"] = [l.tolist() for l in objects_scale] # -> the attibute before normalisation, can be used to unnormalize
+        
+        # the below clouds are normalized
+        data_dict["predicate_cat"] = predicate_cat  # predicate id, one hot vector
+        data_dict["predicate_num"] = predicate_num # union point cloud size
+        data_dict["predicate_pcl_flag"] = predicate_pcl_flag.tolist()  # corresponding point cloud in the union bounding box -> 0 not related, 1 subject, 2 object
+        data_dict["predicate_dist"] = [l.tolist() for l in predicate_dist] # center-to-center distance
         data_dict["predicate_min_dist"] = [l.tolist() for l in predicate_min_dist]
+        # save these so we can unnormalize the point cloud
+        data_dict["predicate_pcl_center"] = [l.tolist() for l in predicate_pcl_center]
+        data_dict["predicate_pcl_scale"] = predicate_pcl_scale
+        # triples: record all two objects that has relationships, might have multi edges between two objects
+        # pairs: record two objects that has relationships 
+        # the first part of the pairs has relationships
+        # the second part of the pairs has no relationships
+        # same for triples, but triples use 0 to rep non-existing relationship
         data_dict["pairs"] = pairs
-        data_dict["edges"] = edges.tolist()
         data_dict["triples"] = triples
+        # edges: record the index of the two objects that has relationships
+        data_dict["edges"] = edges.tolist() 
+        
         data_dict["objects_count"] = len(objects_cat)
         data_dict["predicate_count"] = len(predicate_cat)
         data_dict["tight_bbox"] = tight_bbox
-        data_dict["object2frame"] = object2frame_split
-        data_dict["rel2frame"] = rels2frame_split
+        data_dict["obb_bbox"] = obb_bbox 
+        # remove these since we are not using rgb images
+        # data_dict["object2frame"] = object2frame_split 
+        # data_dict["rel2frame"] = rels2frame_split
         data_dict["id2name"] = relationships_scan['objects']
 
         return data_dict
@@ -395,7 +511,7 @@ class Preprocessor():
     def write_pickle(self, relationship):
 
         scan_id = relationship["scan"] + "-" + str(hex(relationship["split"]))[-1]
-        folder = os.path.join(CONF.PATH.R3SCAN, "preprocessed", scan_id[:-2])
+        folder = os.path.join(CONF.PATH.R3SCAN, "preprocessed" + postfix,  scan_id[:-2])
         filepath = os.path.join(folder, f"data_dict_{scan_id[-1]}.pkl")
         if os.path.exists(filepath) and self.skip_existing:
             # print('skipping already exists')
@@ -421,6 +537,7 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--parallel', action='store_true', help='parallel', required=False)
     argparser.add_argument('--subset', action='store_true', help='subset', required=False)
+    argparser.add_argument('--postfix', type=str, default='', help='postfix', required=False)
     args = argparser.parse_args()
 
     relationships_train = json.load(open(os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset/relationships_train.json")))["scans"]
@@ -459,9 +576,10 @@ if __name__ == '__main__':
 
     # import random
     # random.shuffle(relationships)
-
+    postfix = args.postfix
+    workers = 32
     if args.parallel:
-        process_map(processor.write_pickle, relationships, max_workers=16, chunksize=1)
+        process_map(processor.write_pickle, relationships, max_workers=workers, chunksize=1)
     else:
         for r in tqdm(relationships):
             processor.write_pickle(r)

@@ -16,15 +16,12 @@ from tqdm.contrib.concurrent import process_map
 import matplotlib.pyplot as plt
 from open3dsg.config.config import CONF
 from open3dsg.util.util_misc import read_txt_to_list
-# from segment_anything import sam_model_registry, SamPredictor
+from segment_anything import sam_model_registry, SamPredictor
 
 lock = multiprocessing.Lock()
 
 use_sam = False
-# sam = sam_model_registry['vit_b'](checkpoint='sam_vit_b_01ec64.pth').to(device="cuda")
-# sam.share_memory()
-# sam_predictor = SamPredictor(sam)
-
+sam = None
 
 def sam_selection(img, points):
     k_rounds = 10
@@ -296,6 +293,40 @@ def compute_mapping(world_to_camera, coords, depth, intrinsic, cut_bound, vis_th
     return mapping
 
 
+# This function is mapping 3D objects/instances to 2D image frames.
+# It takes a point cloud (3D data) with labeled instances (objects) and projects these points onto 
+# multiple 2D images using camera parameters.
+
+# For each image and each object instance:
+
+# It transforms 3D points from world coordinates to camera coordinates
+# It computes which 3D points from an object are visible in the image
+# It determines the 2D pixel locations of these points in the image
+
+# The function keeps track of objects that are sufficiently visible in each image using criteria based on:
+
+# Number of visible points (pixels > 12)
+# Ratio of visible points to total points (ratio > 0.3 or pixels > 80)
+# Special case for walls and floors (instance_names[inst] in ['wall', 'floor'] and pixels > 80)
+
+# For each sufficiently visible object in each image, it stores:
+
+# Image name
+# Number of visible pixels
+# Visibility ratio
+# Bounding box coordinates in the image
+# Unique 2D mapping points
+
+# There's a conditional block for using "SAM" (Segment Anything Model) for object masking when available.
+
+# The ultimate output is a dictionary object2frame where:
+
+# Keys are instance IDs
+# Values are lists of tuples containing information about each image where that object appears visibly
+
+# Likely part of a computer vision pipeline for tasks like multi-view 3D reconstruction, object tracking 
+# across frames, or creating training data for object recognition systems.
+
 def image_3d_mapping(scan, image_list, color_list, img_names, point_cloud, instances, extrinsics, intrinsics, instance_names, image_width, image_height, boarder_pixels=0, vis_tresh=0.05, scene_data=None):
     # dict(zip(list(instance_names.keys()),[[] for i in range(len(image_list))])) #dict with keys inst and then frame,points tuple
     object2frame = dict()
@@ -378,6 +409,7 @@ if __name__ == '__main__':
     argparser.add_argument('--mode', type=str, default='test', choices=["train", "test", "validation"], help='train, test, validation')
     argparser.add_argument('--dataset', type=str, default='R3SCAN', choices=["R3SCAN", "SCANNET"], help='R3SCAN or SCANNET')
     argparser.add_argument('--parallel', action='store_true', help='parallel', required=False)
+    argparser.add_argument('--use_sam', action='store_true', help='parallel', required=False)
 
     args = argparser.parse_args()
     print("========= Deal with {} ========".format(args.mode))
@@ -391,14 +423,21 @@ if __name__ == '__main__':
     else:
         root = os.path.join(CONF.PATH.R3SCAN_RAW, "_3DSSG_subset")
 
+    skip_existing = True
+    use_sam = args.use_sam
+    
+    if use_sam:
+        sam = sam_model_registry['vit_b'](checkpoint='data_out/sam_vit_b_01ec64.pth').to(device="cuda")
+        sam.share_memory()
+        sam_predictor = SamPredictor(sam)
+    
+    
     scene_data, selected_scans = read_json(root, mode)
-    export_path = os.path.join(export_path, "views")
+    export_path = os.path.join(export_path, "test_views") if not use_sam else os.path.join(export_path, "sam_views")
 
     scans = sorted(list(scene_data.keys()))
     print("Storing views in: ", export_path)
-
-    skip_existing = True
-    use_sam = False
+    
     if args.parallel:
         process_map(partial(run, scene_data=scene_data, export_path=export_path, dataset=dataset), scans, max_workers=8, chunksize=4)
     else:
